@@ -1,0 +1,68 @@
+name: CI/CD for the App
+
+on:
+  push
+
+jobs:
+  ci_cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout the repository
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      # 2) Set up Python 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          # Cache will be invalidated when pyproject.toml changes
+          cache-dependency-path: "pyproject.toml"
+
+      # 3) Check if pyproject.toml exists
+      - name: Check pyproject.toml
+        id: check_pyproject
+        run: |
+          if [ -f pyproject.toml ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 4) Install dependencies from pyproject.toml (if it exists)
+      - name: Install deps from pyproject.toml
+        if: steps.check_pyproject.outputs.exists == 'true'
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          # Try to install the "dev" extras if defined; fallback to base install if not
+          pip install -e ".[dev]" || pip install -e .
+      
+      # 5) Print a message if pyproject.toml is missing
+      - name: Skip (no pyproject.toml)
+        if: steps.check_pyproject.outputs.exists == 'false'
+        run: echo "pyproject.toml not found — skipping install & tests."
+
+      # 6) Check whether there are test files (tests/test_*.py or tests/*_test.py)
+      - name: Check tests presence
+        id: check_tests
+        if: steps.check_pyproject.outputs.exists == 'true'
+        shell: bash
+        run: |
+          if [ -d tests ] && find tests -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q . ; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 8) Run tests (if test files exist)
+      - name: Run tests
+        if: steps.check_pyproject.outputs.exists == 'true' && steps.check_tests.outputs.exists == 'true'
+        run: |
+          pytest -q
+
+      # 9) No tests found — just print a message
+      - name: Skip tests (no test files found)
+        if: steps.check_pyproject.outputs.exists == 'true' && steps.check_tests.outputs.exists == 'false'
+        run: echo "No test files found in ./tests — skipping pytest."
