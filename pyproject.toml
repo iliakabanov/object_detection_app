@@ -18,8 +18,6 @@ authors = [
 
 description = "Lovely Spam! Wonderful Spam!"
 readme = "README.md"
-license = "MIT"
-license-files = ["LICEN[CS]E.*"]
 keywords = ["YOLO", "fse4ai"]
 
 classifiers = [
@@ -31,4 +29,8 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/iliakabanov/object_detection_app"
 Repository = "https://github.com/iliakabanov/object_detection_app.git"
-"Bug Tracker" = "https://github.com/iliakabanov/object_detection_app/issuess"
+"Bug Tracker" = "https://github.com/iliakabanov/object_detection_app/issues"
+
+
+[tool.hatch.version]
+path = "_version.py" 
