@@ -2,9 +2,9 @@ FROM python:3.10-slim
 
 WORKDIR /images
 
-COPY pyproject.toml .
+# COPY pyproject.toml .
 
-RUN pip install -r pyproject.toml
+# RUN pip install -r pyproject.toml
 
 COPY . .
 
