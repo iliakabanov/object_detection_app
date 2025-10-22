@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import subprocess
 import argparse
 from ultralytics import YOLO
 from detection import process_folder
@@ -52,7 +53,6 @@ CFG = load_config()
 
 MODEL_PATH = Path(__file__).resolve().parent / "models" / "yolo12n.pt"
 
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("-i", "--input", type=Path, default=Path("backend/input"))
@@ -63,16 +63,25 @@ def main():
     args.input.mkdir(parents=True, exist_ok=True)
     args.output.mkdir(parents=True, exist_ok=True)
 
+    # Check if model exists
     if not args.model.exists():
-        print("Model not found:", args.model)
-        print("Run: ./scripts/download_model.sh")
-        return
+        print(f"Model not found: {args.model}")
+        print("Attempting to download model automatically...")
+        # Run download_model.sh
+        download_script = Path(__file__).resolve().parents[2] / "scripts" / "download_model.sh"
+        if download_script.exists():
+            subprocess.run(["bash", str(download_script)], check=True)
+        else:
+            raise FileNotFoundError(f"Download script not found: {download_script}")
+
+        # After downloading, verify the model exists
+        if not args.model.exists():
+            raise FileNotFoundError(f"Failed to download the model to {args.model}")
 
     print("Loading model:", args.model)
     model = YOLO(str(args.model))
 
     cfg = load_config()
-    # inference config from YAML, CLI --conf overrides config value
     inf = cfg.get("inference", {})
     device = inf.get("device", DEFAULT_INFERENCE_DEVICE)
     imgsz = int(inf.get("imgsz", DEFAULT_INFERENCE_IMGSZ))
