@@ -1,9 +1,17 @@
-FROM python:3.10-slim
+FROM python:3.11-slim AS base
 
-WORKDIR /images
+WORKDIR /app
+
+
+COPY backend/ backend/
+
+
+RUN chmod +x backend/setup_venv.sh && \
+    cd backend && \
+    PYTHON=/usr/local/bin/python3 ./setup_venv.sh
 
 COPY . .
 
-RUN pip install .
+ENV PATH="/app/backend/.venv/bin:$PATH"
 
-CMD ["python", "-m", "src.object_detection_app.main"]
+CMD ["/app/backend/.venv/bin/python", "backend/app/process_images.py"]
