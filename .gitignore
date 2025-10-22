@@ -8,6 +8,5 @@ __pycache__/
 .env
 backend/input/*
 backend/output/*
-Dockerfile
 docker-compose.yml
 *.yaml
