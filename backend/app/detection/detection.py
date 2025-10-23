@@ -1,7 +1,14 @@
 from pathlib import Path
 from typing import List
 from PIL import Image, ImageDraw, ImageFont
-import matplotlib.font_manager as fm
+
+
+try:
+    import importlib
+
+    fm = importlib.import_module("matplotlib.font_manager")
+except Exception:
+    fm = None
 
 from .constants import (
     DEFAULT_BOX_COLOR,
@@ -45,7 +52,11 @@ def draw_boxes(image: Image.Image, boxes: List[dict], cfg: dict):
     # Load font (try DejaVuSans, fall back to default)
     font = None
     try:
-        font = ImageFont.truetype(fm.findfont("DejaVu Sans"), font_size_cfg)
+        if fm is not None:
+            font = ImageFont.truetype(fm.findfont("DejaVu Sans"), font_size_cfg)
+        else:
+            # try a generic truetype; fall back to default
+            font = ImageFont.load_default()
     except Exception:
         try:
             font = ImageFont.load_default()
@@ -104,13 +115,21 @@ def process_folder(model, inp: Path, out: Path, conf: float, device: str, imgsz:
         results = model.predict(source=img, device=device, imgsz=imgsz, conf=conf, verbose=False)
         r = results[0]
         boxes = []
-        if hasattr(r, "boxes") and r.boxes is not None and len(r.boxes) > 0:
-            xyxy = r.boxes.xyxy.tolist()
-            confs = r.boxes.conf.tolist()
-            clss = r.boxes.cls.tolist()
-            for xy, c, cls in zip(xyxy, confs, clss):
-                if int(cls) == 0:  # COCO person class
-                    boxes.append({"xyxy": xy, "conf": float(c), "class": int(cls)})
+        if hasattr(r, "boxes") and r.boxes is not None:
+            # Support both ultralytics Boxes (with .xyxy/.conf/.cls that implement
+            # .tolist()) and simple containers where those attributes are plain lists.
+            raw_xyxy = r.boxes.xyxy
+            raw_conf = r.boxes.conf
+            raw_cls = r.boxes.cls
+
+            xyxy = raw_xyxy.tolist() if hasattr(raw_xyxy, "tolist") else raw_xyxy
+            confs = raw_conf.tolist() if hasattr(raw_conf, "tolist") else raw_conf
+            clss = raw_cls.tolist() if hasattr(raw_cls, "tolist") else raw_cls
+
+            if xyxy and len(xyxy) > 0:
+                for xy, c, cls in zip(xyxy, confs, clss):
+                    if int(cls) == 0:  # COCO person class
+                        boxes.append({"xyxy": xy, "conf": float(c), "class": int(cls)})
         out_img = draw_boxes(img, boxes, cfg)
         out_path = out / p.name
         out_img.save(out_path)
