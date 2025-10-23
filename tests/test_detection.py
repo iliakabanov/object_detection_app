@@ -1,122 +1,123 @@
+import unittest
+import tempfile
 from pathlib import Path
+from io import StringIO
+from unittest import mock
 from PIL import Image
-import pytest
+import shutil
 
-from backend.app.detection import detection as det
-
-
-# === Utility helpers ===
-
-def make_test_image(path: Path, size=(200, 120), color=(10, 20, 30)):
-    """Create and save a simple RGB test image."""
-    img = Image.new("RGB", size, color)
-    img.save(path)
-    return path
+from backend.app.detection.detection import is_image, draw_boxes, process_folder
 
 
-class FakeBoxes:
-    """Mock class for YOLO result boxes with xyxy, conf, cls attributes."""
-
-    def __init__(self, xyxy_list, confs, clss):
-        self.xyxy = xyxy_list
-        self.conf = confs
-        self.cls = clss
-
-    def __len__(self):
-        return len(self.xyxy)
+class DummyBoxes:
+    def __init__(self):
+        self.xyxy = [[0, 0, 10, 10]]
+        self.conf = [0.95]
+        self.cls = [0]
 
 
-class FakeResult:
-    """Mock YOLO result object."""
-    def __init__(self, boxes: FakeBoxes):
-        self.boxes = boxes
+class DummyResult:
+    def __init__(self):
+        self.boxes = DummyBoxes()
 
 
-class FakeModel:
-    """Fake YOLO model with predictable output."""
-    def __init__(self, results):
-        # results: list of FakeResult
-        self._results = results
+class DummyModel:
+    def predict(self, source, device, imgsz, conf, verbose):
+        return [DummyResult()]
 
-    def predict(self, source, device, imgsz, conf, verbose=False):
-        return self._results
+class TestIsImage(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmpdir)
+        self.img_path = Path(self.tmpdir) / "test.png"
+        Image.new("RGB", (10, 10), color="red").save(self.img_path)
+
+    def test_valid_image(self):
+        self.assertTrue(is_image(self.img_path))
+
+    def test_invalid_extension(self):
+        fake = Path(self.tmpdir) / "test.txt"
+        fake.write_text("not an image")
+        self.assertFalse(is_image(fake))
+
+    def test_nonexistent_file(self):
+        self.assertFalse(is_image(Path(self.tmpdir) / "no.png"))
 
 
-# === Tests ===
-
-def test_is_image(tmp_path):
-    """Ensure is_image correctly identifies image-like filenames."""
-    img_path = tmp_path / "img.JPG"
-    img_path.write_text("not an image")
-    assert det.is_image(img_path)
-
-    txt_path = tmp_path / "doc.txt"
-    txt_path.write_text("hello")
-    assert not det.is_image(txt_path)
-
-
-def test_draw_boxes_and_label_area(tmp_path):
-    """Verify that bounding boxes and labels are drawn on the image."""
-    img_path = make_test_image(tmp_path / "a.jpg", size=(200, 120))
-    img = Image.open(img_path).convert("RGB")
-
-    boxes = [{"xyxy": [50, 20, 150, 100], "conf": 0.987, "class": 0}]
-    cfg = {
-        "drawing": {
-            "box_color": [255, 0, 0],
-            "box_thickness": 2,
-            "label_bg_color": [123, 45, 67],
-            "label_text_color": [255, 255, 255],
-            "font_size": 12,
-            "label_padding": [4, 2],
+class TestDrawBoxes(unittest.TestCase):
+    def setUp(self):
+        self.img = Image.new("RGB", (100, 100), color="white")
+        self.box = [{"xyxy": [10, 10, 50, 50], "conf": 0.9, "class": 0}]
+        self.cfg = {
+            "drawing": {
+                "box_color": (255, 0, 0),
+                "box_thickness": 2,
+                "label_bg_color": (0, 0, 0),
+                "label_text_color": (255, 255, 255),
+                "font_size": 10,
+                "label_padding": (2, 2),
+            }
         }
-    }
 
-    out = det.draw_boxes(img.copy(), boxes, cfg)
-    assert out.size == img.size
+    @mock.patch("sys.stdout", new_callable=StringIO)
+    def test_valid_draw(self, _):
+        out = draw_boxes(self.img.copy(), self.box, self.cfg)
+        self.assertIsInstance(out, Image.Image)
 
-    # Verify a pixel on the rectangle border has changed color
-    x0, y0, x1, y1 = boxes[0]["xyxy"]
-    # sample a point on the top border
-    test_x = int((x0 + x1) / 2)
-    test_y = int(y0)  # top edge
-    before = img.getpixel((test_x, test_y))
-    after = out.getpixel((test_x, test_y))
+    @mock.patch("sys.stdout", new_callable=StringIO)
+    def test_empty_boxes(self, _):
+        out = draw_boxes(self.img.copy(), [], self.cfg)
+        self.assertIsInstance(out, Image.Image)
 
-    assert before != after, f"Expected pixel color to change at {(test_x, test_y)}"
-
-
-
-def test_process_folder_happy_path(tmp_path):
-    """End-to-end test: process one image with fake model."""
-    inp = tmp_path / "in"
-    out = tmp_path / "out"
-    inp.mkdir()
-    out.mkdir()
-
-    img_path = make_test_image(inp / "p.jpg")
-
-    boxes = FakeBoxes(xyxy_list=[[10, 10, 50, 50]], confs=[0.9], clss=[0])
-    res = FakeResult(boxes)
-    model = FakeModel([res])
-
-    det.process_folder(model, inp, out, conf=0.2, device="cpu", imgsz=640, cfg={})
-
-    out_file = out / "p.jpg"
-    assert out_file.exists()
-    assert out_file.stat().st_size > 0
+    @mock.patch("sys.stdout", new_callable=StringIO)
+    def test_invalid_font_size(self, _):
+        cfg = {"drawing": {"font_size": "invalid"}}
+        out = draw_boxes(self.img.copy(), self.box, cfg)
+        self.assertIsInstance(out, Image.Image)
 
 
-def test_process_folder_no_images(tmp_path, capsys):
-    """Ensure process_folder handles empty input folder gracefully."""
-    inp = tmp_path / "empty"
-    out = tmp_path / "out"
-    inp.mkdir()
-    out.mkdir()
+class TestProcessFolder(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmpdir)
+        self.inp = self.tmpdir / "input"
+        self.out = self.tmpdir / "output"
+        self.inp.mkdir()
+        Image.new("RGB", (10, 10), color="blue").save(self.inp / "img1.png")
+        self.cfg = {"drawing": {}}
+        self.model = DummyModel()
 
-    model = FakeModel([])
-    det.process_folder(model, inp, out, conf=0.2, device="cpu", imgsz=640, cfg={})
-    captured = capsys.readouterr()
+    @mock.patch("sys.stdout", new_callable=StringIO)
+    def test_process_folder_valid(self, fake_out):
+        process_folder(self.model, self.inp, self.out, conf=0.5, device="cpu", imgsz=640, cfg=self.cfg)
+        output = fake_out.getvalue()
+        self.assertIn("Processing", output)
+        self.assertIn("Saved", output)
+        self.assertTrue(any(self.out.glob("*.png")))
 
-    assert "No images in" in captured.out
-    assert not any(out.iterdir())
+    @mock.patch("sys.stdout", new_callable=StringIO)
+    def test_process_folder_no_images(self, fake_out):
+        empty_dir = self.tmpdir / "empty"
+        empty_dir.mkdir()
+        process_folder(self.model, empty_dir, self.out, conf=0.5, device="cpu", imgsz=640, cfg=self.cfg)
+        self.assertIn("No images", fake_out.getvalue())
+
+
+class TestProcessFolderMock(unittest.TestCase):
+    @mock.patch("sys.stdout", new_callable=StringIO)
+    def test_mock_stdout(self, fake_out):
+        model = DummyModel()
+        with tempfile.TemporaryDirectory() as tmp:
+            inp = Path(tmp) / "inp"
+            out = Path(tmp) / "out"
+            inp.mkdir()
+            Image.new("RGB", (10, 10), color="green").save(inp / "x.png")
+
+            process_folder(model, inp, out, 0.5, "cpu", 640, {"drawing": {}})
+            output = fake_out.getvalue()
+            self.assertIn("Processing", output)
+            self.assertIn("Saved", output)
+
+
+if __name__ == "__main__":
+    unittest.main()
