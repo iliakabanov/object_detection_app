@@ -1,0 +1,12 @@
+.venv
+*.pt
+node_modules
+__pycache__/
+*.pyc
+.DS_Store
+.vscode
+.env
+backend/input/*
+backend/output/*
+docker-compose.yml
+*.yaml
