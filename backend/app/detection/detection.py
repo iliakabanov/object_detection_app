@@ -41,6 +41,11 @@ def draw_boxes(image: Image.Image, boxes: List[dict], cfg: dict):
             return DEFAULT_FONT_SIZE
 
     font_size_cfg = compute_font_px(font_cfg_raw, image.height)
+    # make label font larger (user requested ~2x)
+    try:
+        font_size_cfg = int(font_size_cfg * 4)
+    except Exception:
+        pass
 
     # Load font (try DejaVuSans, fall back to default)
     font = None

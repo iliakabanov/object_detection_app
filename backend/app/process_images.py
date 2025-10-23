@@ -61,8 +61,10 @@ MODEL_PATH = Path(__file__).resolve().parent / "models" / "yolo12n.pt"
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("-i", "--input", type=Path, default=Path("backend/input"))
-    p.add_argument("-o", "--output", type=Path, default=Path("backend/output"))
+    # default to backend/input and backend/output relative to the backend folder
+    repo_backend = Path(__file__).resolve().parents[1]
+    p.add_argument("-i", "--input", type=Path, default=repo_backend / "input")
+    p.add_argument("-o", "--output", type=Path, default=repo_backend / "output")
     p.add_argument("-m", "--model", type=Path, default=Path(__file__).resolve().parent / "models" / "yolo12n.pt")
     p.add_argument("--mode", choices=("cli", "web"), default="web", help="Run mode: cli (process folder) or web (start local UI)")
     p.add_argument("--port", default=5000, help="Port for web UI (default 5000)")
@@ -95,104 +97,146 @@ def main():
     imgsz = int(inf.get("imgsz", DEFAULT_INFERENCE_IMGSZ))
     conf_val = float(inf.get("conf", DEFAULT_INFERENCE_CONF))
 
-    if args.mode == "cli":
-        process_folder(model, args.input, args.output, conf_val, device, imgsz, cfg)
-        return
+    if args.mode == "web":
+        # Start simple Flask web UI
+        app = Flask(__name__)
 
-    # Start simple Flask web UI
-    app = Flask(__name__)
-
-    INDEX_HTML = """
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Local Object Detection</title>
-        <style>
-          body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; }
-          .row { display:flex; gap:1rem; }
-          .col { flex:1 }
-          img { max-width:100%; height:auto; }
-        </style>
-      </head>
-      <body>
-        <h2>Local Object Detection</h2>
-        <p>Загрузите изображение или выберите существующее из папки input.</p>
-        <form action="/process" method="post" enctype="multipart/form-data">
-          <div>
-            <label>Upload image: <input type="file" name="file" accept="image/*"></label>
-          </div>
-          <div>
-            <label>Or choose existing file:
-              <select name="choose">
-                <option value="">-- none --</option>
-                {% for f in files %}
-                <option value="{{f}}">{{f}}</option>
-                {% endfor %}
-              </select>
-            </label>
-          </div>
-          <div style="margin-top:1rem">
-            <button type="submit">Process</button>
-          </div>
+        INDEX_HTML = """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Human Detection</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; }
+      .row { display:flex; gap:1rem; }
+      .col { flex:1 }
+      img { max-width:100%; height:auto; }
+    </style>
+  </head>
+  <body>
+    <h2>Human Detection</h2>
+    <p>Choose image from the mounted folder.</p>
+        <form action="/process" method="post">
+            <div>
+                <label>Choose file:
+                    <select name="choose">
+                        <option value="">-- none --</option>
+                        {% for f in files %}
+                        <option value="{{f}}" {% if chosen==f %}selected{% endif %}>{{f}}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <button type="submit">Process</button>
+            </div>
         </form>
-        <hr />
-        <h3>How it works</h3>
-        <p>Server processes the image locally and returns a processed image with bounding boxes. No internet required after model is downloaded.</p>
-      </body>
-    </html>
-    """
 
-    @app.route("/", methods=["GET"])
-    def index():
-        files = [p.name for p in sorted(args.input.glob("*")) if is_image(p)]
-        return render_template_string(INDEX_HTML, files=files)
+        <div style="display:flex; gap:1rem; margin-top:1rem">
+            <div style="flex:1;">
+                <h4>Input</h4>
+                {% if chosen %}
+                    <img src="/input/{{chosen}}" alt="input">
+                {% else %}
+                    <p>No input selected.</p>
+                {% endif %}
+            </div>
+            <div style="flex:1;">
+                <h4>Output</h4>
+                {% if processed %}
+                    <img src="/output/{{processed}}" alt="processed">
+                    <div><a href="/download/{{processed}}">Download processed</a></div>
+                {% else %}
+                    <p>No processed image.</p>
+                {% endif %}
+            </div>
+        </div>
+    <hr />
+    <h3>How it works</h3>
+    <p>Server processes the image locally and returns a processed image with bounding boxes. No internet required after model is downloaded.</p>
+  </body>
+</html>
+"""
 
-    def process_pil_image(img: Image.Image):
-        # run model.predict on PIL image and draw boxes
-        results = model.predict(source=img, device=device, imgsz=imgsz, conf=conf_val, verbose=False)
-        r = results[0]
-        boxes = []
-        if hasattr(r, "boxes") and r.boxes is not None and len(r.boxes) > 0:
-            xyxy = r.boxes.xyxy.tolist()
-            confs = r.boxes.conf.tolist()
-            clss = r.boxes.cls.tolist()
-            for xy, c, cls in zip(xyxy, confs, clss):
-                if int(cls) == 0:
-                    boxes.append({"xyxy": xy, "conf": float(c), "class": int(cls)})
-        out_img = draw_boxes(img.convert("RGB"), boxes, cfg)
-        bio = io.BytesIO()
-        out_img.save(bio, format="PNG")
-        bio.seek(0)
-        return bio
+        @app.route("/", methods=["GET"])
+        def index():
+            files = [p.name for p in sorted(args.input.glob("*")) if is_image(p)]
+            chosen = request.args.get("choose")
+            processed = request.args.get("processed")
+            return render_template_string(INDEX_HTML, files=files, chosen=chosen, processed=processed)
 
-    @app.route("/process", methods=["POST"])
-    def process_route():
-        # uploaded file takes precedence
-        if "file" in request.files and request.files["file"].filename:
-            f = request.files["file"]
-            img = Image.open(f.stream).convert("RGB")
-            buf = process_pil_image(img)
-            return send_file(buf, mimetype="image/png", as_attachment=True, download_name="processed.png")
+        def process_pil_image(img: Image.Image):
+            # run model.predict on PIL image and draw boxes
+            results = model.predict(source=img, device=device, imgsz=imgsz, conf=conf_val, verbose=False)
+            r = results[0]
+            boxes = []
+            if hasattr(r, "boxes") and r.boxes is not None and len(r.boxes) > 0:
+                xyxy = r.boxes.xyxy.tolist()
+                confs = r.boxes.conf.tolist()
+                clss = r.boxes.cls.tolist()
+                for xy, c, cls in zip(xyxy, confs, clss):
+                    if int(cls) == 0:
+                        boxes.append({"xyxy": xy, "conf": float(c), "class": int(cls)})
+            out_img = draw_boxes(img.convert("RGB"), boxes, cfg)
+            bio = io.BytesIO()
+            out_img.save(bio, format="PNG")
+            bio.seek(0)
+            return bio
 
-        chosen = request.form.get("choose", "")
-        if chosen:
+        @app.route("/process", methods=["POST"])
+        def process_route():
+            # Only allow choosing files from the input folder
+            chosen = request.form.get("choose", "")
+            if not chosen:
+                return redirect(url_for("index"))
             p = args.input / chosen
-            if p.exists() and is_image(p):
-                img = Image.open(p).convert("RGB")
-                buf = process_pil_image(img)
-                return send_file(buf, mimetype="image/png", as_attachment=True, download_name=f"processed_{chosen}")
-        return redirect(url_for("index"))
+            if not (p.exists() and is_image(p)):
+                return redirect(url_for("index"))
 
-    host = "127.0.0.1"
-    port = int(args.port)
-    url = f"http://{host}:{port}/"
-    print(f"Starting web UI at {url}")
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
-    app.run(host=host, port=port)
+            img = Image.open(p).convert("RGB")
+            out_buf = process_pil_image(img)
+
+            # Ensure output directory exists
+            args.output.mkdir(parents=True, exist_ok=True)
+            out_name = f"processed_{chosen}"
+            out_path = args.output / out_name
+            # Save using PIL from buffer to preserve PNG content
+            with open(out_path, "wb") as f:
+                f.write(out_buf.getbuffer())
+
+            # Redirect back to index so both images can be shown
+            return redirect(url_for("index", choose=chosen, processed=out_name))
+
+        @app.route("/download/<path:fname>")
+        def download_file(fname: str):
+            # Serve files only from the output directory
+            candidate = args.output / fname
+            if not candidate.exists() or not candidate.is_file():
+                return redirect(url_for("index"))
+            return send_file(str(candidate), as_attachment=True, download_name=fname)
+
+        @app.route("/input/<path:fname>")
+        def serve_input(fname: str):
+            candidate = args.input / fname
+            if not candidate.exists() or not candidate.is_file() or not is_image(candidate):
+                return redirect(url_for("index"))
+            return send_file(str(candidate))
+
+        @app.route("/output/<path:fname>")
+        def serve_output(fname: str):
+            candidate = args.output / fname
+            if not candidate.exists() or not candidate.is_file():
+                return redirect(url_for("index"))
+            return send_file(str(candidate))
+
+        host = "127.0.0.1"
+        port = int(args.port)
+        url = f"http://{host}:{port}/"
+        print(f"Starting web UI at {url}")
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+        app.run(host=host, port=port)
 
 
 if __name__ == "__main__":
