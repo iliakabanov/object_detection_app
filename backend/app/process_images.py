@@ -204,7 +204,10 @@ def main():
                 f.write(out_buf.getbuffer())
 
             # Redirect back to index so both images can be shown
-            return redirect(url_for("index", choose=chosen, processed=out_name))
+            response = redirect(url_for("index", choose=chosen, processed=out_name))
+            # Prevent automatic download by setting Content-Disposition to inline
+            response.headers["Content-Disposition"] = "inline"
+            return response
 
         @app.route("/download/<path:fname>")
         def download_file(fname: str):
@@ -226,7 +229,9 @@ def main():
             candidate = args.output / fname
             if not candidate.exists() or not candidate.is_file():
                 return redirect(url_for("index"))
-            return send_file(str(candidate))
+            response = send_file(str(candidate))
+            response.headers["Content-Disposition"] = "inline"
+            return response
 
         host = "0.0.0.0"
         port = int(args.port)

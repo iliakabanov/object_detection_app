@@ -24,8 +24,10 @@ COPY backend/ ./backend/
 COPY scripts/ ./scripts/
 
 # Download YOLO model
-RUN chmod +x scripts/download_model.sh && ./scripts/download_model.sh
-
+# Normalize line endings, make executable, run with POSIX sh
+RUN sed -i 's/\r$//' scripts/download_model.sh \
+ && chmod +x scripts/download_model.sh \
+ && sh scripts/download_model.sh
 
 # Stage 2: Final runtime image
 FROM python:3.11-slim AS runtime
