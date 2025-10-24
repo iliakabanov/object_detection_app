@@ -1,34 +1,54 @@
-# Use Python 3.11 with Debian Bullseye (more libraries preinstalled than slim)
-FROM python:3.11-bullseye
+# Stage 1: Build dependencies and download model
+FROM python:3.11-slim AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies needed for building packages and OpenCV
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    curl \
+# Install essential system libs for OpenCV and wget
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     libgl1 \
     libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and wheel
-RUN python -m pip install --upgrade pip setuptools wheel
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Pre-install CPU PyTorch to satisfy ultralytics dependency
-RUN python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Copy only requirements first (for better caching)
+COPY backend/requirements.txt ./backend/requirements.txt
 
-# Copy backend folder and the rest of the project
-COPY backend/ backend/
-COPY . .
+# Install dependencies
+RUN python -m pip install --no-cache-dir -r backend/requirements.txt
+
+# Copy application code (excluding input/output)
+COPY backend/ ./backend/
+COPY scripts/ ./scripts/
 
 # Download YOLO model
 RUN chmod +x scripts/download_model.sh && ./scripts/download_model.sh
 
-# Install all Python requirements globally in the container
-RUN python -m pip install -r backend/requirements.txt
 
-# Default command to run your app
-CMD ["python", "backend/app/process_images.py"]
+# Stage 2: Final runtime image
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Install minimal runtime dependencies for OpenCV
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages and app from builder
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /app /app
+
+# Ensure permissions
+RUN chmod +x /app/scripts/download_model.sh
+
+# Expose Flask web UI port
+EXPOSE 5000
+
+# Default command: run Flask web app
+CMD ["python", "backend/app/process_images.py", "--mode", "web", "--port", "5000"]
+
+
