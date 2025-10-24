@@ -1,0 +1,13 @@
+.git/
+__pycache__/
+*.log
+*.csv
+*.jpg
+*.jpeg
+*.png
+.venv/
+*.tar
+*.pt
+backend/input/
+backend/output/
+.env

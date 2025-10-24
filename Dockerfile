@@ -1,13 +1,57 @@
-FROM python:3.11-slim AS base
+# Stage 1: Build dependencies and download model
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-COPY . .
+# Install essential system libs for OpenCV and wget
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    libgl1 \
+    libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
 
-RUN chmod +x backend/setup_venv.sh && \
-    cd backend && \
-    PYTHON=/usr/local/bin/python3 ./setup_venv.sh
+# Upgrade pip and wheel
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
-ENV PATH="/app/backend/.venv/bin:$PATH"
+# Copy only requirements first (for better caching)
+COPY backend/requirements.txt ./backend/requirements.txt
 
-CMD ["/app/backend/.venv/bin/python", "backend/app/process_images.py"]
+# Install dependencies
+RUN python -m pip install --no-cache-dir -r backend/requirements.txt
+
+# Copy application code (excluding input/output)
+COPY backend/ ./backend/
+COPY scripts/ ./scripts/
+COPY tests/ ./tests/
+
+# Download YOLO model
+# Normalize line endings, make executable, run with POSIX sh
+RUN sed -i 's/\r$//' scripts/download_model.sh \
+ && chmod +x scripts/download_model.sh \
+ && sh scripts/download_model.sh
+
+# Stage 2: Final runtime image
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Install minimal runtime dependencies for OpenCV
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages and app from builder
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /app /app
+
+# Ensure permissions
+RUN chmod +x /app/scripts/download_model.sh
+
+# Expose Flask web UI port
+EXPOSE 5000
+
+# Default command: run Flask web app
+CMD ["python", "backend/app/process_images.py", "--mode", "web", "--port", "5000"]
+
+

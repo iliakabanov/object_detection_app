@@ -4,7 +4,7 @@ on:
   push
 
 jobs:
-  ci_cd:
+  build_and_test:
     runs-on: ubuntu-latest
 
     steps:
@@ -12,65 +12,28 @@ jobs:
       - name: Checkout the repo
         uses: actions/checkout@v4
 
-      # 2) Set up Python 
-      # With cache, when there exists pyproject.toml 
-      - name: Setup Python (cached)
-        if: ${{ hashFiles('**/pyproject.toml') != '' }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: "pip"
-          cache-dependency-path: "**/pyproject.toml"
-      
-      # Without cache, when pyproject.toml doesn't exist
-      - name: Setup Python (no cache)
-        if: ${{ hashFiles('**/pyproject.toml') == '' }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      # 3) Check if pyproject.toml exists
-      - name: Check pyproject.toml
-        id: check_pyproject
+      # 2) Build Docker image
+      - name: Build Docker image
         run: |
-          if [ -f pyproject.toml ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+          docker build -t ai-people-detector:local .
 
-      # 4) Install dependencies from pyproject.toml (if it exists)
-      - name: Install deps from pyproject.toml
-        if: steps.check_pyproject.outputs.exists == 'true'
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          # Try to install the "dev" extras if defined; fallback to base install if not
-          pip install -e ".[dev]" || pip install -e .
-      
-      # 5) Print a message if pyproject.toml is missing
-      - name: Skip (no pyproject.toml)
-        if: steps.check_pyproject.outputs.exists == 'false'
-        run: echo "pyproject.toml not found — skipping install & tests."
-
-      # 6) Check whether there are test files (tests/test_*.py or tests/*_test.py)
+      # 3) Check if tests exist
       - name: Check tests presence
         id: check_tests
-        if: steps.check_pyproject.outputs.exists == 'true'
-        shell: bash
         run: |
-          if [ -d tests ] && find tests -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q . ; then
+          if [ -d tests ] && find tests -type f -name "test_*.py" | grep -q .; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # 8) Run tests (if test files exist)
-      - name: Run tests
-        if: steps.check_pyproject.outputs.exists == 'true' && steps.check_tests.outputs.exists == 'true'
+      # 4) Run tests inside Docker
+      - name: Run tests inside Docker
+        if: steps.check_tests.outputs.exists == 'true'
         run: |
-          pytest -q
+          docker run --rm ai-people-detector:local python -m unittest discover -s tests -p "test_*.py"
 
-      # 9) No tests found — just print a message
+      # 5) Skip tests if none found
       - name: Skip tests (no test files found)
-        if: steps.check_pyproject.outputs.exists == 'true' && steps.check_tests.outputs.exists == 'false'
-        run: echo "No test files found in ./tests — skipping pytest."
+        if: steps.check_tests.outputs.exists == 'false'
+        run: echo "No test files found in ./tests — skipping unit tests."
