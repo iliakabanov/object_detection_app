@@ -22,6 +22,7 @@ RUN python -m pip install --no-cache-dir -r backend/requirements.txt
 # Copy application code (excluding input/output)
 COPY backend/ ./backend/
 COPY scripts/ ./scripts/
+COPY tests/ ./tests/
 
 # Download YOLO model
 # Normalize line endings, make executable, run with POSIX sh

@@ -3,8 +3,24 @@ from pathlib import Path
 import subprocess
 import argparse
 from ultralytics import YOLO
-from detection import process_folder, draw_boxes, is_image
-from detection.constants import (
+try:
+    # when imported as a package (tests import backend.app.process_images)
+    from .detection import process_folder, draw_boxes, is_image
+    from .detection.constants import (
+        DEFAULT_INFERENCE_DEVICE,
+        DEFAULT_INFERENCE_IMGSZ,
+        DEFAULT_INFERENCE_CONF,
+        DEFAULT_BOX_COLOR,
+        DEFAULT_BOX_THICKNESS,
+        DEFAULT_LABEL_BG_COLOR,
+        DEFAULT_LABEL_TEXT_COLOR,
+        DEFAULT_FONT_SIZE,
+        DEFAULT_LABEL_PADDING,
+    )
+except Exception:
+    # fallback for running the script directly (e.g., python backend/app/process_images.py)
+    from detection import process_folder, draw_boxes, is_image
+    from detection.constants import (
     DEFAULT_INFERENCE_DEVICE,
     DEFAULT_INFERENCE_IMGSZ,
     DEFAULT_INFERENCE_CONF,
@@ -14,7 +30,7 @@ from detection.constants import (
     DEFAULT_LABEL_TEXT_COLOR,
     DEFAULT_FONT_SIZE,
     DEFAULT_LABEL_PADDING,
-)
+    )
 import yaml
 
 # Web UI deps
@@ -97,7 +113,10 @@ def main():
     imgsz = int(inf.get("imgsz", DEFAULT_INFERENCE_IMGSZ))
     conf_val = float(inf.get("conf", DEFAULT_INFERENCE_CONF))
 
-    if args.mode == "web":
+    if args.mode == "cli":
+        # Process all images in input folder
+        process_folder(model, args.input, args.output, device=device, imgsz=imgsz, conf=conf_val, cfg=cfg)
+    else:  # web mode
         # Start simple Flask web UI
         app = Flask(__name__)
 

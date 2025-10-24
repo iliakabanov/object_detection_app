@@ -23,10 +23,7 @@ class DummyResult:
 
 class DummyYOLO:
     def __init__(self, *args, **kwargs):
-        pass
-
-    def predict(self, source, device, imgsz, conf, verbose):
-        return [DummyResult()]
+        self.predict = mock.Mock(return_value=[DummyResult()])
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -52,23 +49,34 @@ class TestMainCLI(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(self.tmpdir, ignore_errors=True))
         self.inp = Path(self.tmpdir) / "input"
         self.out = Path(self.tmpdir) / "output"
-        self.inp.mkdir()
+        self.inp.mkdir(parents=True, exist_ok=True)
+        self.out.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (10, 10), color="blue").save(self.inp / "img1.png")
+        self.dummy_model = DummyYOLO()
 
-    dummy_model = DummyYOLO()
-    @mock.patch("backend.app.process_images.YOLO", return_value=dummy_model)
-    @mock.patch("sys.stdout", new_callable=StringIO)
-    @mock.patch("sys.argv", new_callable=lambda: ["process_images.py", "-i", "", "-o", ""])
-    def test_main_creates_output_and_calls_model(self, fake_argv, fake_out):
-        with mock.patch("backend.app.process_images.Path.mkdir"):
-            with mock.patch("backend.app.process_images.MODEL_PATH", self.tmpdir / "yolo12n.pt"):
-                with mock.patch("backend.app.process_images.Path.exists", return_value=True):
-                    dummy_model = DummyYOLO()
-                    with mock.patch("backend.app.process_images.YOLO", return_value=dummy_model):
-                        process_images.main()
-                        output = fake_out.getvalue()
-                        self.assertIn("Loading model:", output)
-                        self.assertTrue(dummy_model.predict.called)
+    def test_main_creates_output_and_calls_model(self):
+        # Set up all mocks
+        mock_stdout = StringIO()
+        patchers = [
+            mock.patch("sys.argv", ["process_images.py", "-i", str(self.inp), "-o", str(self.out), "--mode", "cli"]),
+            mock.patch("sys.stdout", mock_stdout),
+            mock.patch("backend.app.process_images.YOLO", autospec=True, return_value=self.dummy_model),
+            mock.patch("backend.app.process_images.MODEL_PATH", Path(self.tmpdir) / "yolo12n.pt"),
+            mock.patch("backend.app.process_images.Path.exists", return_value=True)
+        ]
+        
+        # Start all patchers
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        # Run the test
+        process_images.main()
+        
+        # Verify results
+        output = mock_stdout.getvalue()
+        self.assertIn("Loading model:", output)
+        self.assertTrue(self.dummy_model.predict.called)
 
 
 class TestProcessPILIntegration(unittest.TestCase):
