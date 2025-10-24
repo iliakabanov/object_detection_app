@@ -228,7 +228,7 @@ def main():
                 return redirect(url_for("index"))
             return send_file(str(candidate))
 
-        host = "127.0.0.1"
+        host = "0.0.0.0"
         port = int(args.port)
         url = f"http://{host}:{port}/"
         print(f"Starting web UI at {url}")

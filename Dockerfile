@@ -13,13 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Upgrade pip and wheel
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Copy only requirements first (for layer caching)
+# Copy only requirements first (for better caching)
 COPY backend/requirements.txt ./backend/requirements.txt
 
 # Install dependencies
 RUN python -m pip install --no-cache-dir -r backend/requirements.txt
 
-# Copy application code (no input/ or output/)
+# Copy application code (excluding input/output)
 COPY backend/ ./backend/
 COPY scripts/ ./scripts/
 
@@ -32,7 +32,7 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Install runtime system libs (needed for OpenCV)
+# Install minimal runtime dependencies for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
@@ -45,6 +45,10 @@ COPY --from=builder /app /app
 # Ensure permissions
 RUN chmod +x /app/scripts/download_model.sh
 
-# Default command
-CMD ["python", "backend/app/process_images.py"]
+# Expose Flask web UI port
+EXPOSE 5000
+
+# Default command: run Flask web app
+CMD ["python", "backend/app/process_images.py", "--mode", "web", "--port", "5000"]
+
 
