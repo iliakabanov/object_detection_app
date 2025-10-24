@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-# Create a local venv in backend/.venv and install requirements
+# Create a local venv in backend/.venv and install dependencies from pyproject.toml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 # Desired Python version for the project
@@ -48,13 +49,18 @@ fi
 source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip
 
-echo "Installing requirements from requirements.txt..."
-if python -m pip install -r requirements.txt; then
-  echo "Requirements installed successfully."
+# Install build dependencies needed to process pyproject.toml
+echo "Installing build dependencies..."
+python -m pip install build setuptools wheel
+
+# Install the project in editable mode from pyproject.toml
+echo "Installing project from pyproject.toml (editable mode)..."
+if python -m pip install -e "$PROJECT_ROOT"; then
+  echo "Project installed successfully."
 else
-  echo "Requirements installation failed. If the failure is about torch, try installing a CPU torch wheel manually:" >&2
+  echo "Installation from pyproject.toml failed. If the failure is about torch, try installing a CPU torch wheel manually:" >&2
   echo "  python -m pip install torch --index-url https://download.pytorch.org/whl/cpu" >&2
-  echo "Then re-run: python -m pip install -r requirements.txt" >&2
+  echo "Then re-run: python -m pip install -e \"$PROJECT_ROOT\"" >&2
   exit 1
 fi
 

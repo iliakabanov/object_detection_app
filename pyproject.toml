@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "object_detection_app"
+dynamic = ["version"]
+dependencies = [
+  "ultralytics>=8.2.0",
+  "Pillow>=10.0.0",
+  "numpy>=1.25.0, <2.0.0",
+  "torch==2.0.1",
+  "torchvision==0.15.2",
+  "flask==2.2.2",
+  "flask-cors==3.0.10",
+  "opencv-python==4.10.0.82",
+  "PyYAML>=6.0",
+]
+requires-python = ">=3.10, <3.12"
+authors = [
+  {name = "Kurchev Sergei"},
+  {name = "Ilia Beliakov"},
+  {name = "Ilia Kabanov"},
+  {name = "Pavel Ivanov"},
+]
+
+description = "People description"
+readme = "README.md"
+keywords = ["YOLO", "fse4ai"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/iliakabanov/object_detection_app"
+Repository = "https://github.com/iliakabanov/object_detection_app.git"
+"Bug Tracker" = "https://github.com/iliakabanov/object_detection_app/issues"
+
+[tool.hatch.version]
+path = "backend/app/__init__.py"
